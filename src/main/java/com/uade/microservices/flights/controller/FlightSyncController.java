@@ -22,7 +22,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Controlador REST para la ejecución manual del módulo ETL de Vuelos (Booking / RapidAPI).
- * Provee endpoints individuales por destino (POST /{target}) y masivos (POST /all).
+ * Provee endpoints individuales por destino (POST /{target}), masivos completos (POST /all)
+ * y masivos exclusivos para nuevos destinos (POST /new-destinations).
  * No utiliza @Scheduled.
  */
 @RestController
@@ -39,7 +40,7 @@ public class FlightSyncController {
 
     /**
      * Endpoint para ejecutar la sincronización ETL masiva de vuelos
-     * para TODOS los 9 destinos de Gran Premio de Fórmula 1 para 2026.
+     * para TODOS los destinos del catálogo completo.
      * Carga dos búsquedas (Ida Buenos Aires -> Destino y Vuelta Destino -> Buenos Aires)
      * para cada sede y resuelve las claves foráneas en Supabase.
      *
@@ -57,10 +58,37 @@ public class FlightSyncController {
     }
 
     /**
-     * Endpoint para ejecutar manualmente la sincronización ETL de vuelos
-     * para un Gran Premio específico.
+     * Endpoint para ejecutar la sincronización ETL masiva de vuelos
+     * EXCLUSIVAMENTE para los NUEVOS destinos de Gran Premio (Temporada 2027):
+     * - Sakhir (Bahréin): 11/03/2027 -> 15/03/2027
+     * - Yeda (Arabia Saudita): 18/03/2027 -> 22/03/2027
+     * - Melbourne (Australia): 01/04/2027 -> 05/04/2027
+     * - Suzuka (Japón): 08/04/2027 -> 12/04/2027
+     * - Shanghái (China): 15/04/2027 -> 19/04/2027
+     * - Miami (Estados Unidos): 29/04/2027 -> 03/05/2027
+     * - Montreal (Canadá): 20/05/2027 -> 24/05/2027
+     * - Montecarlo (Mónaco): 03/06/2027 -> 07/06/2027
+     * - Portimão (Portugal): 17/06/2027 -> 21/06/2027
+     * - Silverstone (Reino Unido): 01/07/2027 -> 05/07/2027
      *
-     * @param target Nombre del enum GranPremioTarget (ej: SAO_PAULO, MADRID, BAKU, etc.)
+     * @return ApiResponse con el consolidado general de los 10 nuevos destinos procesados.
+     */
+    @PostMapping({"/new-destinations", "/nuevos-destinos", "/sync-new", "/new"})
+    public ResponseEntity<ApiResponse<FlightSyncAllSummaryDto>> syncNewDestinationsFlightData() {
+        log.info("Petición recibida para sincronización masiva de vuelos EXCLUSIVA para los NUEVOS destinos");
+        FlightSyncAllSummaryDto summary = flightSyncService.syncNewDestinationsFlightData();
+        return ResponseEntity.ok(ApiResponse.success(
+                String.format("Sincronización de nuevos destinos completada: %d destinos exitosos de %d procesados (%d vuelos creados, %d actualizados)",
+                        summary.destinosExitosos(), summary.totalDestinosProcesados(), summary.totalVuelosCreados(), summary.totalVuelosActualizados()),
+                summary
+        ));
+    }
+
+    /**
+     * Endpoint para ejecutar manualmente la sincronización ETL de vuelos
+     * para un Gran Premio específico (sea original o nuevo).
+     *
+     * @param target Nombre del enum GranPremioTarget (ej: SAKHIR, MIAMI, SAO_PAULO, MADRID, etc.)
      * @return ApiResponse con los detalles de vuelos de ida y vuelta sincronizados.
      */
     @PostMapping("/{target}")
@@ -69,6 +97,11 @@ public class FlightSyncController {
 
         if ("all".equalsIgnoreCase(target) || "sync-all".equalsIgnoreCase(target)) {
             return syncAllFlightData();
+        }
+
+        if ("new-destinations".equalsIgnoreCase(target) || "nuevos-destinos".equalsIgnoreCase(target)
+                || "sync-new".equalsIgnoreCase(target) || "new".equalsIgnoreCase(target)) {
+            return syncNewDestinationsFlightData();
         }
 
         Optional<GranPremioTarget> targetOpt = GranPremioTarget.fromString(target);
@@ -111,6 +144,8 @@ public class FlightSyncController {
                     map.put("fechaVueloIda", t.getFechaIda().toString());
                     map.put("fechaVueloVuelta", t.getFechaVuelta().toString());
                     map.put("origen", "Buenos Aires (EZE/BUE)");
+                    map.put("nuevoDestino", t.isNuevoDestino());
+                    map.put("temporada", t.isNuevoDestino() ? "2027" : "2026");
                     return map;
                 })
                 .toList();

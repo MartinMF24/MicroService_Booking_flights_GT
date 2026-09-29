@@ -315,17 +315,68 @@ public class FlightClientService {
                     new AirlinesConfig("Emirates", "EK", 1390.0),
                     new AirlinesConfig("Turkish Airlines", "TK", 1220.0)
             );
+            case SAKHIR -> List.of(
+                    new AirlinesConfig("Gulf Air", "GF", 950.0),
+                    new AirlinesConfig("Qatar Airways", "QR", 1050.0),
+                    new AirlinesConfig("Emirates", "EK", 1020.0)
+            );
+            case YEDA -> List.of(
+                    new AirlinesConfig("Saudia", "SV", 980.0),
+                    new AirlinesConfig("Qatar Airways", "QR", 1080.0),
+                    new AirlinesConfig("Emirates", "EK", 1040.0)
+            );
+            case MELBOURNE -> List.of(
+                    new AirlinesConfig("Qantas", "QF", 1650.0),
+                    new AirlinesConfig("LATAM Airlines", "LA", 1520.0),
+                    new AirlinesConfig("Qatar Airways", "QR", 1580.0)
+            );
+            case SUZUKA -> List.of(
+                    new AirlinesConfig("Japan Airlines", "JL", 1420.0),
+                    new AirlinesConfig("All Nippon Airways", "NH", 1390.0),
+                    new AirlinesConfig("Emirates", "EK", 1450.0)
+            );
+            case SHANGHAI -> List.of(
+                    new AirlinesConfig("China Eastern", "MU", 1320.0),
+                    new AirlinesConfig("Air China", "CA", 1290.0),
+                    new AirlinesConfig("Qatar Airways", "QR", 1350.0)
+            );
+            case MIAMI -> List.of(
+                    new AirlinesConfig("American Airlines", "AA", 750.0),
+                    new AirlinesConfig("Aerolíneas Argentinas", "AR", 780.0),
+                    new AirlinesConfig("Delta Air Lines", "DL", 740.0)
+            );
+            case MONTREAL -> List.of(
+                    new AirlinesConfig("Air Canada", "AC", 890.0),
+                    new AirlinesConfig("American Airlines", "AA", 860.0),
+                    new AirlinesConfig("Copa Airlines", "CM", 820.0)
+            );
+            case MONTECARLO -> List.of(
+                    new AirlinesConfig("Air France", "AF", 890.0),
+                    new AirlinesConfig("Iberia", "IB", 840.0),
+                    new AirlinesConfig("Lufthansa", "LH", 870.0)
+            );
+            case PORTIMAO -> List.of(
+                    new AirlinesConfig("TAP Air Portugal", "TP", 780.0),
+                    new AirlinesConfig("Iberia", "IB", 760.0),
+                    new AirlinesConfig("Air Europa", "UX", 730.0)
+            );
+            case SILVERSTONE -> List.of(
+                    new AirlinesConfig("British Airways", "BA", 890.0),
+                    new AirlinesConfig("LATAM Airlines", "LA", 860.0),
+                    new AirlinesConfig("Air Europa", "UX", 820.0)
+            );
         };
     }
 
     private int getEstimatedDurationHours(GranPremioTarget target) {
         return switch (target) {
             case SAO_PAULO -> 3;
-            case CIUDAD_DE_MEXICO -> 9;
-            case AUSTIN, LAS_VEGAS -> 13;
-            case MADRID -> 12;
-            case BAKU, LUSAIL, ABU_DABI -> 19;
-            case SINGAPUR -> 24;
+            case CIUDAD_DE_MEXICO, MIAMI -> 9;
+            case MADRID, MONTREAL -> 12;
+            case AUSTIN, LAS_VEGAS, PORTIMAO, SILVERSTONE -> 13;
+            case MONTECARLO -> 14;
+            case BAKU, LUSAIL, ABU_DABI, SAKHIR, YEDA, MELBOURNE -> 19;
+            case SINGAPUR, SUZUKA, SHANGHAI -> 24;
         };
     }
 }

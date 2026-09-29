@@ -1,16 +1,21 @@
 package com.uade.microservices.flights.model;
 
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Catálogo de destinos de Gran Premio de Fórmula 1 y fechas de carrera para 2026.
+ * Catálogo de destinos de Gran Premio de Fórmula 1 y fechas de carrera/viaje.
  * Incluye metadatos necesarios para el proceso ETL de vuelos (código IATA, fechas y ciudad asociada).
  */
 public enum GranPremioTarget {
 
+    // ==========================================
+    // DESTINOS ORIGINALES (TEMPORADA 2026)
+    // ==========================================
     MADRID(
             "2026-09-11",
             "-391194",
@@ -82,6 +87,120 @@ public enum GranPremioTarget {
             "Abu Dabi",
             UUID.fromString("d028fc05-78cd-4dd8-96d0-9134ff624468"),
             "AUH"
+    ),
+
+    // ==========================================
+    // NUEVOS DESTINOS (TEMPORADA 2027)
+    // ==========================================
+    SAKHIR(
+            "2027-03-14",
+            "2027-03-11",
+            "2027-03-15",
+            "-783756",
+            "city",
+            "Sakhir",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000001"),
+            "BAH",
+            true
+    ),
+    YEDA(
+            "2027-03-21",
+            "2027-03-18",
+            "2027-03-22",
+            "-3096644",
+            "city",
+            "Yeda",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000002"),
+            "JED",
+            true
+    ),
+    MELBOURNE(
+            "2027-04-04",
+            "2027-04-01",
+            "2027-04-05",
+            "-1586835",
+            "city",
+            "Melbourne",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000003"),
+            "MEL",
+            true
+    ),
+    SUZUKA(
+            "2027-04-11",
+            "2027-04-08",
+            "2027-04-12",
+            "-244837",
+            "city",
+            "Suzuka",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000004"),
+            "NGO",
+            true
+    ),
+    SHANGHAI(
+            "2027-04-18",
+            "2027-04-15",
+            "2027-04-19",
+            "-1924536",
+            "city",
+            "Shanghái",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000005"),
+            "PVG",
+            true
+    ),
+    MIAMI(
+            "2027-05-02",
+            "2027-04-29",
+            "2027-05-03",
+            "20023181",
+            "city",
+            "Miami",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000006"),
+            "MIA",
+            true
+    ),
+    MONTREAL(
+            "2027-05-23",
+            "2027-05-20",
+            "2027-05-24",
+            "-564344",
+            "city",
+            "Montreal",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000007"),
+            "YUL",
+            true
+    ),
+    MONTECARLO(
+            "2027-06-06",
+            "2027-06-03",
+            "2027-06-07",
+            "-90886",
+            "city",
+            "Montecarlo",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000008"),
+            "NCE",
+            true
+    ),
+    PORTIMAO(
+            "2027-06-20",
+            "2027-06-17",
+            "2027-06-21",
+            "-2173167",
+            "city",
+            "Portimão",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000009"),
+            "FAO",
+            true
+    ),
+    SILVERSTONE(
+            "2027-07-04",
+            "2027-07-01",
+            "2027-07-05",
+            "-2607519",
+            "city",
+            "Silverstone",
+            UUID.fromString("e4b0c201-1111-4444-8888-000000000010"),
+            "LHR",
+            true
     );
 
     public static final String ORIGEN_DEFAULT_IATA = "EZE";
@@ -89,19 +208,42 @@ public enum GranPremioTarget {
     public static final UUID BUENOS_AIRES_DEFAULT_ID = UUID.fromString("b14f828a-6617-48f8-8422-5441a11ff497");
 
     private final LocalDate fechaCarrera;
+    private final LocalDate fechaIda;
+    private final LocalDate fechaVuelta;
     private final String destId;
     private final String destType;
     private final String nombreCiudad;
     private final UUID ciudadId;
     private final String codigoAeropuerto;
+    private final boolean nuevoDestino;
 
+    // Constructor para destinos originales 2026 (-1 día de ida, +2 días de vuelta)
     GranPremioTarget(String fechaCarrera, String destId, String destType, String nombreCiudad, UUID ciudadId, String codigoAeropuerto) {
+        this(
+                fechaCarrera,
+                LocalDate.parse(fechaCarrera).minusDays(1).toString(),
+                LocalDate.parse(fechaCarrera).plusDays(2).toString(),
+                destId,
+                destType,
+                nombreCiudad,
+                ciudadId,
+                codigoAeropuerto,
+                false
+        );
+    }
+
+    // Constructor completo con fechas de viaje explícitas
+    GranPremioTarget(String fechaCarrera, String fechaIda, String fechaVuelta, String destId, String destType,
+                     String nombreCiudad, UUID ciudadId, String codigoAeropuerto, boolean nuevoDestino) {
         this.fechaCarrera = LocalDate.parse(fechaCarrera);
+        this.fechaIda = LocalDate.parse(fechaIda);
+        this.fechaVuelta = LocalDate.parse(fechaVuelta);
         this.destId = destId;
         this.destType = destType;
         this.nombreCiudad = nombreCiudad;
         this.ciudadId = ciudadId;
         this.codigoAeropuerto = codigoAeropuerto;
+        this.nuevoDestino = nuevoDestino;
     }
 
     public LocalDate getFechaCarrera() {
@@ -128,11 +270,15 @@ public enum GranPremioTarget {
         return codigoAeropuerto;
     }
 
+    public boolean isNuevoDestino() {
+        return nuevoDestino;
+    }
+
     /**
-     * Fecha del vuelo de ida: 1 día antes de la carrera (check-in de viaje).
+     * Fecha del vuelo de ida (Buenos Aires -> Destino).
      */
     public LocalDate getFechaIda() {
-        return this.fechaCarrera.minusDays(1);
+        return this.fechaIda;
     }
 
     public LocalDate getCheckinDate() {
@@ -140,10 +286,10 @@ public enum GranPremioTarget {
     }
 
     /**
-     * Fecha del vuelo de vuelta: 2 días después de la carrera (checkout de viaje).
+     * Fecha del vuelo de vuelta (Destino -> Buenos Aires).
      */
     public LocalDate getFechaVuelta() {
-        return this.fechaCarrera.plusDays(2);
+        return this.fechaVuelta;
     }
 
     public LocalDate getCheckoutDate() {
@@ -151,15 +297,56 @@ public enum GranPremioTarget {
     }
 
     /**
-     * Busca un destino por nombre insensible a mayúsculas, minúsculas o guiones.
+     * Obtiene exclusivamente los 10 nuevos destinos agregados (temporada 2027).
+     */
+    public static List<GranPremioTarget> getNuevosDestinos() {
+        return Arrays.stream(values())
+                .filter(GranPremioTarget::isNuevoDestino)
+                .toList();
+    }
+
+    /**
+     * Obtiene los destinos originales del calendario 2026.
+     */
+    public static List<GranPremioTarget> getDestinosOriginales() {
+        return Arrays.stream(values())
+                .filter(t -> !t.isNuevoDestino())
+                .toList();
+    }
+
+    /**
+     * Busca un destino por nombre insensible a mayúsculas, minúsculas, acentos o guiones.
      */
     public static Optional<GranPremioTarget> fromString(String value) {
         if (value == null || value.isBlank()) {
             return Optional.empty();
         }
-        String normalized = value.trim().toUpperCase().replace("-", "_");
-        return Arrays.stream(values())
-                .filter(target -> target.name().equals(normalized))
-                .findFirst();
+        String clean = stripAccents(value).trim().toUpperCase().replace("-", "_").replace(" ", "_");
+
+        for (GranPremioTarget target : values()) {
+            if (target.name().equals(clean)) {
+                return Optional.of(target);
+            }
+            if (stripAccents(target.getNombreCiudad()).equalsIgnoreCase(stripAccents(value).trim())) {
+                return Optional.of(target);
+            }
+        }
+
+        // Variaciones comunes de nombres
+        return switch (clean) {
+            case "BAHRAIN", "BAHREIN" -> Optional.of(SAKHIR);
+            case "JEDDAH", "JIDDAH", "YEDDAH" -> Optional.of(YEDA);
+            case "MONACO" -> Optional.of(MONTECARLO);
+            case "FARO", "ALGARVE" -> Optional.of(PORTIMAO);
+            case "LONDON", "LONDRES" -> Optional.of(SILVERSTONE);
+            case "JAPON", "JAPAN", "NAGOYA" -> Optional.of(SUZUKA);
+            default -> Optional.empty();
+        };
+    }
+
+    private static String stripAccents(String s) {
+        if (s == null) return "";
+        return Normalizer.normalize(s, Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
     }
 }

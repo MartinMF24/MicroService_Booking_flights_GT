@@ -44,10 +44,10 @@ class FlightSyncControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/microservicios/sync-flights/all debe responder 200 OK y ejecutar masivo")
+    @DisplayName("POST /api/microservicios/sync-flights/all debe responder 200 OK y ejecutar masivo completo")
     void shouldExecuteSyncAll() throws Exception {
         FlightSyncAllSummaryDto summary = new FlightSyncAllSummaryDto(
-                9, 9, 0, 18, 18, 0, OffsetDateTime.now(), List.of()
+                19, 19, 0, 38, 38, 0, OffsetDateTime.now(), List.of()
         );
 
         when(flightSyncService.syncAllFlightData()).thenReturn(summary);
@@ -55,22 +55,40 @@ class FlightSyncControllerTest {
         mockMvc.perform(post("/api/microservicios/sync-flights/all"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.totalDestinosProcesados").value(9))
-                .andExpect(jsonPath("$.data.destinosExitosos").value(9));
+                .andExpect(jsonPath("$.data.totalDestinosProcesados").value(19))
+                .andExpect(jsonPath("$.data.destinosExitosos").value(19));
 
         verify(flightSyncService).syncAllFlightData();
+    }
+
+    @Test
+    @DisplayName("POST /api/microservicios/sync-flights/new-destinations debe responder 200 OK y ejecutar masivo de nuevos destinos")
+    void shouldExecuteSyncNewDestinations() throws Exception {
+        FlightSyncAllSummaryDto summary = new FlightSyncAllSummaryDto(
+                10, 10, 0, 20, 20, 0, OffsetDateTime.now(), List.of()
+        );
+
+        when(flightSyncService.syncNewDestinationsFlightData()).thenReturn(summary);
+
+        mockMvc.perform(post("/api/microservicios/sync-flights/new-destinations"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.totalDestinosProcesados").value(10))
+                .andExpect(jsonPath("$.data.destinosExitosos").value(10));
+
+        verify(flightSyncService).syncNewDestinationsFlightData();
     }
 
     @Test
     @DisplayName("POST /api/microservicios/sync-flights/{target} debe procesar destino individual")
     void shouldExecuteSingleTarget() throws Exception {
         FlightSyncResultDto result = new FlightSyncResultDto(
-                GranPremioTarget.MADRID,
-                "Madrid",
-                "MAD",
-                LocalDate.parse("2026-09-11"),
-                LocalDate.parse("2026-09-10"),
-                LocalDate.parse("2026-09-13"),
+                GranPremioTarget.SAKHIR,
+                "Sakhir",
+                "BAH",
+                LocalDate.parse("2027-03-14"),
+                LocalDate.parse("2027-03-11"),
+                LocalDate.parse("2027-03-15"),
                 6, 6, 0, 3, 3,
                 "SUCCESS",
                 "Sincronización completada",
@@ -78,15 +96,15 @@ class FlightSyncControllerTest {
                 List.of()
         );
 
-        when(flightSyncService.syncFlightData(GranPremioTarget.MADRID)).thenReturn(result);
+        when(flightSyncService.syncFlightData(GranPremioTarget.SAKHIR)).thenReturn(result);
 
-        mockMvc.perform(post("/api/microservicios/sync-flights/MADRID"))
+        mockMvc.perform(post("/api/microservicios/sync-flights/SAKHIR"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.codigoAeropuertoDestino").value("MAD"))
-                .andExpect(jsonPath("$.data.nombreCiudad").value("Madrid"));
+                .andExpect(jsonPath("$.data.codigoAeropuertoDestino").value("BAH"))
+                .andExpect(jsonPath("$.data.nombreCiudad").value("Sakhir"));
 
-        verify(flightSyncService).syncFlightData(GranPremioTarget.MADRID);
+        verify(flightSyncService).syncFlightData(GranPremioTarget.SAKHIR);
     }
 
     @Test
@@ -99,11 +117,11 @@ class FlightSyncControllerTest {
     }
 
     @Test
-    @DisplayName("GET /api/microservicios/sync-flights/targets debe devolver catálogo informativo")
+    @DisplayName("GET /api/microservicios/sync-flights/targets debe devolver catálogo informativo con 19 destinos")
     void shouldReturnTargetsList() throws Exception {
         mockMvc.perform(get("/api/microservicios/sync-flights/targets"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.length()").value(9));
+                .andExpect(jsonPath("$.data.length()").value(19));
     }
 }

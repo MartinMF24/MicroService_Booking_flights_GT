@@ -16,6 +16,7 @@ import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -55,14 +56,16 @@ public class FlightSyncService {
     }
 
     /**
-     * Ejecuta el proceso ETL para todos los destinos de Gran Premio del calendario 2026.
+     * Ejecuta el proceso ETL para una lista específica de destinos de Gran Premio.
      * Genera vuelos de Ida (Buenos Aires -> GP) y de Vuelta (GP -> Buenos Aires) para cada sede.
-     * Incorpora aislamiento de excepciones para que fallas en una ciudad no interrumpan el proceso.
+     * Incorpora aislamiento de excepciones para que fallas en una ciudad no interrumpan el proceso del lote.
      *
-     * @return Resumen consolidado de todos los destinos procesados.
+     * @param targets Lista de destinos a procesar.
+     * @param logLabel Etiqueta identificadora del proceso para los registros de log.
+     * @return Resumen consolidado de los destinos procesados.
      */
-    public FlightSyncAllSummaryDto syncAllFlightData() {
-        log.info("Iniciando sincronización masiva de vuelos para todos los Grandes Premios...");
+    public FlightSyncAllSummaryDto syncDestinations(List<GranPremioTarget> targets, String logLabel) {
+        log.info("Iniciando sincronización {} (Total destinos a procesar: {})...", logLabel, targets.size());
 
         List<FlightSyncResultDto> resultados = new ArrayList<>();
         int totalVuelosExtraidos = 0;
@@ -71,7 +74,7 @@ public class FlightSyncService {
         int destinosExitosos = 0;
         int destinosConError = 0;
 
-        for (GranPremioTarget target : GranPremioTarget.values()) {
+        for (GranPremioTarget target : targets) {
             try {
                 log.info("Sincronizando vuelos para destino: {} ({})", target.name(), target.getNombreCiudad());
                 FlightSyncResultDto res = syncFlightData(target);
@@ -105,11 +108,11 @@ public class FlightSyncService {
             }
         }
 
-        log.info("Sincronización masiva de vuelos finalizada. Destinos: {}, Exitosos: {}, Con error: {}, Vuelos creados: {}, Vuelos actualizados: {}",
-                GranPremioTarget.values().length, destinosExitosos, destinosConError, totalVuelosCreados, totalVuelosActualizados);
+        log.info("Sincronización {} finalizada. Destinos: {}, Exitosos: {}, Con error: {}, Vuelos creados: {}, Vuelos actualizados: {}",
+                logLabel, targets.size(), destinosExitosos, destinosConError, totalVuelosCreados, totalVuelosActualizados);
 
         return new FlightSyncAllSummaryDto(
-                GranPremioTarget.values().length,
+                targets.size(),
                 destinosExitosos,
                 destinosConError,
                 totalVuelosExtraidos,
@@ -118,6 +121,21 @@ public class FlightSyncService {
                 OffsetDateTime.now(),
                 resultados
         );
+    }
+
+    /**
+     * Ejecuta el proceso ETL para TODOS los destinos del catálogo completo de Grandes Premios.
+     */
+    public FlightSyncAllSummaryDto syncAllFlightData() {
+        return syncDestinations(Arrays.asList(GranPremioTarget.values()), "masiva de vuelos para todos los Grandes Premios");
+    }
+
+    /**
+     * Ejecuta el proceso ETL EXCLUSIVAMENTE para los NUEVOS destinos de Gran Premio (Temporada 2027).
+     * Modifica y carga únicamente los nuevos destinos solicitados.
+     */
+    public FlightSyncAllSummaryDto syncNewDestinationsFlightData() {
+        return syncDestinations(GranPremioTarget.getNuevosDestinos(), "de vuelos para los NUEVOS destinos de Gran Premio (Temporada 2027)");
     }
 
     /**
@@ -344,6 +362,16 @@ public class FlightSyncService {
             case LAS_VEGAS -> List.of("Las Vegas");
             case LUSAIL -> List.of("Lusail", "Doha");
             case ABU_DABI -> List.of("Abu Dhabi", "Abu Dabi");
+            case SAKHIR -> List.of("Sakhir", "Manama", "Bahrain", "Bahréin");
+            case YEDA -> List.of("Yeda", "Jeddah", "Jiddah", "Yeddah");
+            case MELBOURNE -> List.of("Melbourne");
+            case SUZUKA -> List.of("Suzuka", "Nagoya", "Mie");
+            case SHANGHAI -> List.of("Shanghai", "Shanghái");
+            case MIAMI -> List.of("Miami");
+            case MONTREAL -> List.of("Montreal", "Montréal");
+            case MONTECARLO -> List.of("Montecarlo", "Monaco", "Mónaco", "Monte Carlo", "Nice", "Niza");
+            case PORTIMAO -> List.of("Portimão", "Portimao", "Faro", "Algarve");
+            case SILVERSTONE -> List.of("Silverstone", "London", "Londres", "Northampton", "Towcester", "Birmingham");
         };
     }
 }

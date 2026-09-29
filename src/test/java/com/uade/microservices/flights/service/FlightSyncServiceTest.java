@@ -150,9 +150,8 @@ class FlightSyncServiceTest {
     }
 
     @Test
-    @DisplayName("Debe aislar fallas en syncAllFlightData si un destino genera error")
+    @DisplayName("Debe aislar fallas en syncAllFlightData si un destino genera error y procesar los 19 destinos")
     void shouldIsolateFailuresInSyncAll() {
-        // Mock de simulación para todos
         when(flightClientService.extractFlights(any(), any(), any(), any(), any()))
                 .thenReturn(List.of());
         when(flightAdapter.toEntityList(any(), any(), any(), any()))
@@ -161,8 +160,24 @@ class FlightSyncServiceTest {
         FlightSyncAllSummaryDto summary = flightSyncService.syncAllFlightData();
 
         assertNotNull(summary);
-        assertEquals(9, summary.totalDestinosProcesados());
-        assertEquals(9, summary.destinosExitosos());
+        assertEquals(19, summary.totalDestinosProcesados());
+        assertEquals(19, summary.destinosExitosos());
+        assertEquals(0, summary.destinosConError());
+    }
+
+    @Test
+    @DisplayName("Debe procesar exclusivamente los 10 nuevos destinos con syncNewDestinationsFlightData")
+    void shouldSyncOnlyNewDestinations() {
+        when(flightClientService.extractFlights(any(), any(), any(), any(), any()))
+                .thenReturn(List.of());
+        when(flightAdapter.toEntityList(any(), any(), any(), any()))
+                .thenReturn(List.of());
+
+        FlightSyncAllSummaryDto summary = flightSyncService.syncNewDestinationsFlightData();
+
+        assertNotNull(summary);
+        assertEquals(10, summary.totalDestinosProcesados());
+        assertEquals(10, summary.destinosExitosos());
         assertEquals(0, summary.destinosConError());
     }
 }

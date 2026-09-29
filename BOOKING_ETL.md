@@ -1,62 +1,72 @@
 # MicroService Flights GP — Módulo ETL (RapidAPI Booking Flights)
 
-Microservicio ETL (**Extract, Transform, Load**) para la ingesta, normalización y persistencia de vuelos hacia y desde las sedes del campeonato de Fórmula 1 en la base de datos PostgreSQL (Supabase).
+Documentación técnica y operativa del microservicio ETL de vuelos para la plataforma Grand Prix Tracker.
 
 ---
 
-## 1. Arquitectura y Ubicación
+## 1. Funcionalidad del Microservicio
 
-Este proyecto es un microservicio autónomo desarrollado con **Java 24** y **Spring Boot 4.1.1**, organizado bajo una arquitectura **Package by Feature**:
+### Propósito Fundamental
+La función primordial de este microservicio es **cargar datos reales de vuelos comerciales en nuestra base de datos relacional para que posteriormente sean consumidos de manera eficiente y confiable por la aplicación principal (frontend y backend central)**.
 
-```
-src/main/java/com/uade/microservices/flights/
-├── BookingFlightsMicroserviceApplication.java   # Punto de entrada de la aplicación Spring Boot
-│
-├── adapter/
-│   └── FlightAdapter.java                       # Fase TRANSFORM: Transforma y normaliza DTOs a entidades Vuelo (stock simulado 5-50)
-├── config/
-│   ├── FlightRapidApiProperties.java            # Mapeo de credenciales y propiedades de RapidAPI y vuelos
-│   ├── FlightRestTemplateConfig.java            # Configuración del bean RestTemplate con timeouts
-│   └── CorsConfig.java                          # Configuración de CORS para clientes web
-├── controller/
-│   └── FlightSyncController.java                # Endpoints REST para sincronización manual (POST /all, POST /{target})
-├── dto/
-│   ├── rapidapi/
-│   │   ├── FlightRawDto.java                    # DTO tolerante para capturar cada vuelo crudo de RapidAPI
-│   │   └── RapidApiFlightResponseDto.java       # DTO contenedor de respuestas de RapidAPI
-│   └── response/
-│       ├── FlightSummaryDto.java                # Resumen individual de vuelo sincronizado (con dirección IDA/VUELTA)
-│       ├── FlightSyncResultDto.java             # Resultado de la sincronización de un Gran Premio específico
-│       └── FlightSyncAllSummaryDto.java         # Consolidado general de sincronización masiva
-├── model/
-│   ├── Ciudad.java                              # Entidad JPA para la tabla ciudades (resolución de FKs)
-│   ├── FlightDirection.java                     # Enum indicador de dirección de vuelo (IDA / VUELTA)
-│   ├── GranPremioTarget.java                    # Catálogo Enum de carreras, fechas, códigos IATA y ciudades
-│   └── Vuelo.java                               # Entidad JPA para la tabla vuelos
-├── repository/
-│   ├── CiudadRepository.java                    # Repositorio JPA para búsqueda de ciudades por nombre/alias
-│   └── VueloRepository.java                     # Repositorio Spring Data JPA de vuelos (queries Upsert)
-├── service/
-│   ├── FlightClientService.java                 # Fase EXTRACT: Cliente HTTP hacia RapidAPI Booking Flights
-│   └── FlightSyncService.java                   # Fase LOAD y Orquestador del flujo ETL (Upsert atómico)
-└── shared/
-    ├── exception/
-    │   └── GlobalExceptionHandler.java          # Manejador centralizado de errores HTTP
-    └── response/
-        └── ApiResponse.java                     # Estructura uniforme de respuesta API
-```
+### ¿Por qué existe este microservicio y qué problemática resuelve?
+1. **Desacoplamiento de APIs Externas**: En lugar de que los usuarios finales o los servicios de negocio consulten directamente proveedores externos de vuelos (con el costo económico, lentitud, límites de tasa y fallos de disponibilidad que ello implica), este microservicio asume la responsabilidad exclusiva de ingestar, transformar y persistir los vuelos de antemano.
+2. **Disponibilidad Inmediata para la Aplicación**: La aplicación cliente consulta directamente la base de datos interna (PostgreSQL / Supabase), obteniendo tiempos de respuesta inmediatos (milisegundos) y eliminando la dependencia en tiempo real de servicios de terceros durante la navegación del usuario.
+3. **Normalización y Estandarización**: Convierte estructuras de datos heterogéneas, variantes y complejas provenientes del proveedor externo en un modelo de dominio uniforme, consistente y con integridad referencial hacia el catálogo de ciudades y circuitos del campeonato.
+4. **Alimentación del Ecosistema de Reservas**: Permite que el sistema de paquetes turísticos y reservas de la plataforma disponga de opciones de transporte aéreo (ida y vuelta) coordinadas con las fechas oficiales de cada Gran Premio de Fórmula 1.
 
 ---
 
-## 2. El Catálogo de Destinos, Fechas y Aeropuertos (`GranPremioTarget`)
+## 2. Explicación Conceptual de los Patrones Utilizados
 
-El Enum `GranPremioTarget` centraliza el calendario oficial de eventos de 2026, los códigos de aeropuerto destino (IATA) y los metadatos geográficos.
+> **Nota de Diseño**: En esta sección se explican los fundamentos, motivaciones y resolución conceptual de cada patrón adoptado en la solución, sin atarse a rutas físicas de archivos ni números de línea.
 
-La **ciudad y aeropuerto de origen siempre es Buenos Aires** (`EZE` / `BUE`). Por cada sede de carrera, el ETL realiza **dos búsquedas solo ida**:
-- **Vuelo de Ida**: Buenos Aires (`EZE`) &rarr; Aeropuerto Sede GP (Fecha = check-in, 1 día antes de la carrera).
-- **Vuelo de Vuelta**: Aeropuerto Sede GP &rarr; Buenos Aires (`EZE`) (Fecha = check-out, 2 días después de la carrera).
+### 2.1. Patrón ETL (Extract, Transform, Load)
+* **Concepto**: Es un patrón de integración y procesamiento de datos dividido en tres fases secuenciales y bien delimitadas:
+  * **Extracción (Extract)**: Recupera datos crudos desde una o más fuentes externas (en este caso, proveedores de vuelos vía HTTP), manejando la comunicación de red, cabeceras, parámetros de búsqueda y tolerancia a fallos de conectividad.
+  * **Transformación (Transform)**: Limpia, filtra, valida y transforma los datos crudos hacia las estructuras internas del dominio. Aquí se unifican formatos de fecha y hora (conversión a UTC con zona horaria), se normalizan nombres de aerolíneas, se calcula la duración estimada, se fija la escala de precios y se generan valores derivados o complementarios (como el stock de asientos disponibles cuando la fuente externa no lo provee).
+  * **Carga (Load)**: Persiste los datos transformados en el repositorio de destino asegurando integridad relacional (claves foráneas), atomicidad de operaciones e idempotencia.
 
-| Enum Constant | Sede / Ciudad | Fecha Carrera | Fecha Ida (-1 día) | Fecha Vuelta (+2 días) | Código IATA Destino | Origen |
+### 2.2. Patrón Adapter (Adaptador)
+* **Concepto**: Permite que dos interfaces o estructuras incompatibles trabajen juntas. En este contexto, el proveedor externo entrega esquemas JSON cambiantes, anidados y con nomenclaturas arbitrarias. El patrón Adaptador actúa como un traductor entre esa representación externa y la entidad del modelo de datos interno.
+* **Beneficio**: Aislar completamente el modelo de dominio interno de las mutaciones o inconsistencias de la API externa. Si el proveedor cambia sus nombres de campos o estructura, el núcleo del sistema no se ve afectado; solo la lógica de adaptación absorbe el cambio.
+
+### 2.3. Patrón Repository (Repositorio)
+* **Concepto**: Media entre la capa de lógica de negocio y la capa de acceso a datos, encapsulando las operaciones de consulta y persistencia en una colección conceptual de objetos en memoria.
+* **Beneficio**: Oculta los detalles del motor de base de datos relacional y el lenguaje SQL. Proporciona métodos específicos para realizar operaciones de búsqueda avanzada mediante claves naturales de negocio, facilitando la detección de registros existentes para operaciones de inserción o actualización.
+
+### 2.4. Patrón Data Transfer Object (DTO)
+* **Concepto**: Objetos simples destinados a transportar información entre capas o subsistemas sin contener lógica de negocio.
+* **Beneficio**: 
+  * Se utilizan DTOs tolerantes de entrada para recibir la respuesta cruda de proveedores externos ignorando atributos irrelevantes.
+  * Se utilizan DTOs de salida para estructurar las respuestas REST enviadas a los clientes, evitando exponer directamente las entidades de base de datos y ocultando detalles internos o relaciones no deseadas.
+
+### 2.5. Patrón Fallback / Graceful Degradation (Degradación Agraciada)
+* **Concepto**: Estrategia de diseño orientada a la resiliencia en la cual, ante la falla, indisponibilidad, agotamiento de cuota o falta de credenciales de un servicio externo dependiente, el sistema no colapsa ni interrumpe el flujo general, sino que conmuta de forma transparente a una fuente alternativa de datos representativos y coherentes.
+* **Beneficio**: Garantiza la continuidad operativa del pipeline. Incluso en entornos locales de desarrollo sin llaves de API o ante límites de peticiones excedidos, el microservicio sigue cargando vuelos válidos en la base de datos para que la aplicación consumidora nunca se quede sin datos.
+
+### 2.6. Patrón Orchestrator / Arquitectura en Capas
+* **Concepto**: Desacopla la coordinación de alto nivel de las tareas operativas individuales. Un componente orquestador gestiona el flujo secuencial completo: consulta las ciudades en la base de datos, dispara la extracción de ida y de vuelta, invoca la transformación y delega la persistencia.
+* **Beneficio**: Alta cohesión y bajo acoplamiento. Cada etapa tiene una única responsabilidad y el orquestador se limita a dirigir el flujo de ejecución y coordinar las transacciones.
+
+### 2.7. Patrón de Idempotencia y Upsert (Update or Insert)
+* **Concepto**: Garantiza que la ejecución repetida de un proceso de sincronización con los mismos parámetros produzca el mismo resultado en el almacenamiento de datos, sin duplicar registros.
+* **Beneficio**: Si un vuelo con la misma aerolínea, ruta y horario exacto ya existe en la base de datos, el sistema actualiza su tarifa y disponibilidad en lugar de insertar un duplicado. Si no existe, lo inserta como nuevo registro.
+
+---
+
+## 3. Catálogo de Destinos, Fechas y Reglas de Vuelo
+
+El microservicio sincroniza vuelos para los Grandes Premios oficiales de Fórmula 1: tanto los destinos del calendario 2026 como los nuevos destinos de la temporada 2027.
+
+### Reglas de Ruta y Calendario
+* **Ciudad y Aeropuerto de Origen**: Siempre es **Buenos Aires** (`EZE` / `BUE`).
+* **Vuelo de Ida**: Buenos Aires (`EZE`) &rarr; Aeropuerto de la Ciudad Sede (en la fecha de llegada especificada).
+* **Vuelo de Vuelta**: Aeropuerto de la Ciudad Sede &rarr; Buenos Aires (`EZE`) (en la fecha de salida/regreso especificada).
+
+### 3.1. Tabla Maestra de Destinos Originales (Temporada 2026)
+
+| Identificador Target | Ciudad Sede | Fecha Carrera | Fecha Ida (-1 día) | Fecha Vuelta (+2 días) | Código IATA Destino | Origen |
 |---|---|:---:|:---:|:---:|:---:|:---:|
 | `MADRID` | Madrid | 2026-09-11 | 2026-09-10 | 2026-09-13 | `MAD` | EZE (Buenos Aires) |
 | `BAKU` | Bakú | 2026-09-25 | 2026-09-24 | 2026-09-27 | `GYD` | EZE (Buenos Aires) |
@@ -68,36 +78,65 @@ La **ciudad y aeropuerto de origen siempre es Buenos Aires** (`EZE` / `BUE`). Po
 | `LUSAIL` | Lusail (Doha) | 2026-11-27 | 2026-11-26 | 2026-11-29 | `DOH` | EZE (Buenos Aires) |
 | `ABU_DABI` | Abu Dabi | 2026-12-04 | 2026-12-03 | 2026-12-06 | `AUH` | EZE (Buenos Aires) |
 
+### 3.2. Tabla Maestra de Nuevos Destinos (Temporada 2027)
+
+| Identificador Target | Ciudad Sede / País | Fecha Ida (Llegada) | Fecha Vuelta (Salida) | Código IATA Destino | Aeropuerto Principal / Referencia | Origen |
+|---|---|:---:|:---:|:---:|:---:|:---:|
+| `SAKHIR` | Sakhir (Bahréin) | 2027-03-11 | 2027-03-15 | `BAH` | Bahrain International Airport | EZE (Buenos Aires) |
+| `YEDA` | Yeda (Arabia Saudita) | 2027-03-18 | 2027-03-22 | `JED` | King Abdulaziz International Airport | EZE (Buenos Aires) |
+| `MELBOURNE` | Melbourne (Australia) | 2027-04-01 | 2027-04-05 | `MEL` | Melbourne Airport (Tullamarine) | EZE (Buenos Aires) |
+| `SUZUKA` | Suzuka (Japón) | 2027-04-08 | 2027-04-12 | `NGO` | Chubu Centrair International Airport (Nagoya) | EZE (Buenos Aires) |
+| `SHANGHAI` | Shanghái (China) | 2027-04-15 | 2027-04-19 | `PVG` | Shanghai Pudong International Airport | EZE (Buenos Aires) |
+| `MIAMI` | Miami (Estados Unidos) | 2027-04-29 | 2027-05-03 | `MIA` | Miami International Airport | EZE (Buenos Aires) |
+| `MONTREAL` | Montreal (Canadá) | 2027-05-20 | 2027-05-24 | `YUL` | Montréal-Pierre Elliott Trudeau Airport | EZE (Buenos Aires) |
+| `MONTECARLO` | Montecarlo (Mónaco) | 2027-06-03 | 2027-06-07 | `NCE` | Nice Côte d'Azur Airport (acceso Mónaco) | EZE (Buenos Aires) |
+| `PORTIMAO` | Portimão (Portugal) | 2027-06-17 | 2027-06-21 | `FAO` | Faro Airport (Algarve / Portimão) | EZE (Buenos Aires) |
+| `SILVERSTONE` | Silverstone (Reino Unido) | 2027-07-01 | 2027-07-05 | `LHR` | London Heathrow Airport | EZE (Buenos Aires) |
+
 ---
 
-## 3. Configuración y Credenciales (.env / application.properties)
+## 4. Configuración y Entorno de Ejecución
+
+### Variables de Entorno y Propiedades (`application.properties`)
 
 ```properties
-# Puerto dinámico (default 8082 en local para evitar conflicto con backend 8080 y hoteles 8081)
+# Puerto de escucha del microservicio (default 8082 para convivir con backend en 8080 y hoteles en 8081)
 server.port=${PORT:8082}
 
-# ===============================================
-# Configuración RapidAPI - Booking Flights ETL
-# ===============================================
+# Base de Datos PostgreSQL (Supabase Transaction Pooler en puerto 6543)
+spring.datasource.url=${SPRING_DATASOURCE_URL:jdbc:postgresql://aws-0-us-west-2.pooler.supabase.com:6543/postgres?sslmode=require&prepareThreshold=0}
+spring.datasource.username=${SPRING_DATASOURCE_USERNAME:postgres.zprznayvpeijjoiknird}
+spring.datasource.password=${SPRING_DATASOURCE_PASSWORD:uade123uade}
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# Configuración del Pool HikariCP
+spring.datasource.hikari.maximum-pool-size=${HIKARI_MAX_POOL_SIZE:3}
+spring.datasource.hikari.minimum-idle=${HIKARI_MIN_IDLE:1}
+spring.datasource.hikari.idle-timeout=${HIKARI_IDLE_TIMEOUT:30000}
+spring.datasource.hikari.max-lifetime=${HIKARI_MAX_LIFETIME:60000}
+spring.datasource.hikari.connection-timeout=${HIKARI_CONNECTION_TIMEOUT:20000}
+spring.datasource.hikari.pool-name=BookingFlightsHikariPool
+spring.datasource.hikari.data-source-properties.prepareThreshold=0
+
+# Proveedor de Datos Externo (RapidAPI Booking Flights)
 rapidapi.booking.key=${RAPIDAPI_KEY:}
 rapidapi.booking.host=${RAPIDAPI_HOST:booking-com15.p.rapidapi.com}
 rapidapi.booking.base-url=${RAPIDAPI_BOOKING_BASE_URL:https://booking-com15.p.rapidapi.com}
 rapidapi.booking.endpoint=${RAPIDAPI_BOOKING_ENDPOINT:/api/v1/flights/searchFlights}
 
-# Constante de origen por defecto (Buenos Aires: EZE / BUE)
+# Parámetros por Defecto de Origen
 flights.origin.iata=${FLIGHTS_ORIGIN_IATA:EZE}
 flights.origin.city-name=${FLIGHTS_ORIGIN_CITY_NAME:Buenos Aires}
 ```
 
-> **Resiliencia Operativa**: Si no se define `RAPIDAPI_KEY` o ante errores de cuota (HTTP 429), credenciales (HTTP 401/403) o latencia de red, el microservicio activa automáticamente un generador de vuelos representativos con aerolíneas reales por ruta (Iberia, LATAM, Qatar Airways, Singapore Airlines, etc.), garantizando que el pipeline de persistencia y Upsert funcione sin interrupciones ni excepciones no controladas.
-
 ---
 
-## 4. Esquema de Base de Datos y Mapeo JPA
+## 5. Estructura de la Base de Datos y Persistencia
 
-### Tabla `vuelos` &rarr; Entidad JPA `Vuelo`
+### Definición DDL de la Tabla `vuelos` (PostgreSQL)
+
 ```sql
-CREATE TABLE public.vuelos (
+CREATE TABLE IF NOT EXISTS public.vuelos (
   id_vuelo uuid NOT NULL DEFAULT extensions.uuid_generate_v4 (),
   aerolinea character varying(100) NOT NULL,
   origen_id_ciudad uuid NOT NULL,
@@ -108,89 +147,327 @@ CREATE TABLE public.vuelos (
   stock_asientos integer NOT NULL DEFAULT 0,
   created_at timestamp with time zone NULL DEFAULT timezone ('utc'::text, now()),
   CONSTRAINT vuelos_pkey PRIMARY KEY (id_vuelo),
-  CONSTRAINT vuelos_destino_id_ciudad_fkey FOREIGN KEY (destino_id_ciudad) REFERENCES ciudades (id_ciudad) ON DELETE RESTRICT,
-  CONSTRAINT vuelos_origen_id_ciudad_fkey FOREIGN KEY (origen_id_ciudad) REFERENCES ciudades (id_ciudad) ON DELETE RESTRICT
+  CONSTRAINT vuelos_destino_id_ciudad_fkey FOREIGN KEY (destino_id_ciudad) REFERENCES public.ciudades (id_ciudad) ON DELETE RESTRICT,
+  CONSTRAINT vuelos_origen_id_ciudad_fkey FOREIGN KEY (origen_id_ciudad) REFERENCES public.ciudades (id_ciudad) ON DELETE RESTRICT
 );
 ```
 
-- **Mapeo JPA**:
-  - `id_vuelo` (`UUID`, PK).
-  - `aerolinea` (`String`, `length = 100`, no nulo).
-  - `origen_id_ciudad` (`UUID`, FK hacia `ciudades`, no nulo).
-  - `destino_id_ciudad` (`UUID`, FK hacia `ciudades`, no nulo).
-  - `fecha_salida` (`OffsetDateTime`, timestamptz, no nulo).
-  - `fecha_llegada` (`OffsetDateTime`, timestamptz, no nulo).
-  - `precio_usd` (`BigDecimal`, `precision = 10, scale = 2`, no nulo).
-  - `stock_asientos` (`Integer`, default `0`, simulado con un valor aleatorio de **5 a 50** si la API externa no lo provee).
-  - `created_at` (`OffsetDateTime`, timestamptz).
+### Índices de Rendimiento
+1. **`idx_vuelos_origen_destino`**: Optimiza las búsquedas de vuelos por trayecto (`origen_id_ciudad`, `destino_id_ciudad`).
+2. **`idx_vuelos_upsert`**: Optimiza la verificación de duplicados para el proceso de Upsert (`LOWER(aerolinea)`, `origen_id_ciudad`, `destino_id_ciudad`, `fecha_salida`).
+3. **`idx_vuelos_fecha_salida`**: Agiliza los filtros y ordenamiento cronológico por fecha de partida.
 
 ---
 
-## 5. Lógica de Upsert en Persistencia (LOAD)
+## 6. Contrato de la API REST
 
-El proceso de carga aplica la siguiente política en [`VueloRepository`](src/main/java/com/uade/microservices/flights/repository/VueloRepository.java):
-* Busca si ya existe un vuelo con:
-  1. Misma `aerolínea` (insensible a mayúsculas/minúsculas).
-  2. Mismo `origen_id_ciudad`.
-  3. Mismo `destino_id_ciudad`.
-  4. Misma `fecha_salida` exacta.
-* **Si existe**: Actualiza el precio (`precio_usd`), el stock (`stock_asientos`) y la fecha de llegada (`fecha_llegada`).
-* **Si no existe**: Inserta el registro como nuevo vuelo en la tabla `vuelos`.
+Este apartado define detalladamente **qué necesita el microservicio para operar**, **cómo entrega los datos a los consumidores** y **cuáles son las reglas técnicas y de negocio** aplicadas.
+
+### 6.1. ¿Qué Necesitamos? (Requisitos de Entrada / Request Contract)
+
+1. **Protocolo y Método**:
+   * Operaciones de sincronización: **`POST`** (las peticiones modifican el estado de la base de datos).
+   * Operaciones de catálogo / consulta informativa: **`GET`**.
+2. **Cuerpo de la Petición (Request Body)**:
+   * **No se requiere cuerpo (`empty body`)** para disparar la sincronización. Los parámetros se deducen del catálogo preestablecido del calendario o del parámetro en la URL.
+3. **Parámetros de Ruta (Path Variables)**:
+   * Para sincronización individual (`/{target}`): Se debe enviar el identificador del destino.
+   * **Tolerancia de escritura**: Es insensible a mayúsculas/minúsculas y admite guiones o guiones bajos (por ejemplo: `sao_paulo`, `SAO_PAULO`, `sao-paulo`, `MADRID`, `madrid`).
+4. **Cabeceras HTTP**:
+   * `Accept: application/json`
+   * CORS habilitado universalmente (`*`) para admitir invocaciones desde paneles administrativos web o aplicaciones cliente.
+5. **Requisitos de Datos Previos en Base de Datos**:
+   * Las ciudades correspondientes a Buenos Aires y las sedes de los Grandes Premios deben existir en la tabla `ciudades` de PostgreSQL. El servicio resuelve los identificadores UUID mediante coincidencia exacta, normalización sin tildes, lista de alias conocidos o identificadores preconfigurados de contingencia.
 
 ---
 
-## 6. Endpoints REST (Ejecución Manual)
+### 6.2. ¿Cómo nos lo Brinda? (Formato de Salida / Response Contract)
 
-> **Nota**: El servicio no utiliza `@Scheduled`. La ejecución se dispara mediante solicitudes HTTP POST.
+Todas las respuestas del microservicio siguen un contrato uniforme estándar estructurado a través del objeto envoltorio `ApiResponse<T>`:
 
-### 1. Sincronización Masiva de Todos los Destinos (Recomendado)
-- **Método**: `POST`
-- **URL**: `http://localhost:8082/api/microservicios/sync-flights/all` *(o `/sync-all`)*
-- **Descripción**: Ejecuta el pipeline ETL para los 9 Grandes Premios de forma secuencial, procesando vuelos de ida y vuelta para cada uno.
-- **Ejemplo**:
-```bash
-curl -X POST http://localhost:8082/api/microservicios/sync-flights/all
+```json
+{
+  "success": true,
+  "message": "Descripción clara del resultado de la operación",
+  "data": { ... }
+}
 ```
 
-### 2. Sincronización Manual de un Destino Específico
-- **Método**: `POST`
-- **URL**: `http://localhost:8082/api/microservicios/sync-flights/{target}`
-- **Parámetros**: Nombre del enum en `GranPremioTarget` (ej: `MADRID`, `SAO_PAULO`, `BAKU`, etc.)
-- **Ejemplo**:
-```bash
-curl -X POST http://localhost:8082/api/microservicios/sync-flights/SAO_PAULO
-```
+#### Estructura de Campos del Envoltorio:
+* **`success`** (`boolean`): Indica si la operación concluyó exitosamente (`true`) o si ocurrió una falla (`false`).
+* **`message`** (`string`): Mensaje descriptivo con el resumen de la acción realizada o la causa del fallo.
+* **`data`** (`object` / `array` / `null`): Carga útil de respuesta. En caso de error, su valor es `null`.
 
-### 3. Catálogo Informativo de Destinos y Fechas
-- **Método**: `GET`
-- **URL**: `http://localhost:8082/api/microservicios/sync-flights/targets`
-- **Ejemplo**:
-```bash
-curl -X GET http://localhost:8082/api/microservicios/sync-flights/targets
+---
+
+### 6.3. Detalle de Endpoints y Ejemplos de Respuesta
+
+#### 1. Sincronización Masiva de Todos los Destinos (Recomendado)
+* **Método**: `POST`
+* **Rutas disponibles**: 
+  * `/api/microservicios/sync-flights/all`
+  * `/api/microservicios/sync-flights/sync-all`
+  * `/api/microservicios/sync-flights`
+* **Descripción**: Dispara secuencialmente la extracción, transformación y persistencia de vuelos de ida y vuelta para las 9 sedes de Gran Premio del calendario 2026.
+* **Respuesta Exitosa (`200 OK`)**:
+
+```json
+{
+  "success": true,
+  "message": "Sincronización masiva de vuelos completada: 9 destinos exitosos de 9 procesados (36 vuelos creados, 18 actualizados)",
+  "data": {
+    "totalDestinosProcesados": 9,
+    "destinosExitosos": 9,
+    "destinosConError": 0,
+    "totalVuelosExtraidos": 54,
+    "totalVuelosCreados": 36,
+    "totalVuelosActualizados": 18,
+    "fechaEjecucion": "2026-09-29T16:50:00Z",
+    "resultados": [
+      {
+        "target": "MADRID",
+        "nombreCiudad": "Madrid",
+        "codigoAeropuertoDestino": "MAD",
+        "fechaCarrera": "2026-09-11",
+        "fechaIda": "2026-09-10",
+        "fechaVuelta": "2026-09-13",
+        "totalVuelosExtraidos": 6,
+        "vuelosCreados": 4,
+        "vuelosActualizados": 2,
+        "vuelosIda": 2,
+        "vuelosVuelta": 2,
+        "estado": "SUCCESS",
+        "mensaje": "Sincronización ETL de vuelos para Madrid completada con éxito. Vuelos creados: 4 (Ida: 2, Vuelta: 2), Vuelos actualizados: 2.",
+        "fechaSincronizacion": "2026-09-29T16:50:02Z",
+        "vuelos": [
+          {
+            "idVuelo": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+            "aerolinea": "Iberia",
+            "origenIdCiudad": "b14f828a-6617-48f8-8422-5441a11ff497",
+            "destinoIdCiudad": "34053323-6e73-47d9-b306-b4dc8df920cb",
+            "fechaSalida": "2026-09-10T07:15:00Z",
+            "fechaLlegada": "2026-09-10T19:15:00Z",
+            "precioUsd": 820.00,
+            "stockAsientos": 23,
+            "direccion": "IDA"
+          },
+          {
+            "idVuelo": "a18ef930-11cc-4299-b123-9c88b3f4d112",
+            "aerolinea": "Aerolíneas Argentinas",
+            "origenIdCiudad": "34053323-6e73-47d9-b306-b4dc8df920cb",
+            "destinoIdCiudad": "b14f828a-6617-48f8-8422-5441a11ff497",
+            "fechaSalida": "2026-09-13T08:30:00Z",
+            "fechaLlegada": "2026-09-13T20:30:00Z",
+            "precioUsd": 925.00,
+            "stockAsientos": 31,
+            "direccion": "VUELTA"
+          }
+        ]
+      }
+    ]
+  }
+}
 ```
 
 ---
 
-## 7. Manejo Centralizado de Excepciones y Resiliencia
+#### 2. Sincronización Masiva Exclusiva de los Nuevos Destinos (Temporada 2027)
+* **Método**: `POST`
+* **Rutas disponibles**:
+  * `/api/microservicios/sync-flights/new-destinations`
+  * `/api/microservicios/sync-flights/nuevos-destinos`
+  * `/api/microservicios/sync-flights/sync-new`
+  * `/api/microservicios/sync-flights/new`
+* **Descripción**: Dispara secuencialmente la extracción, transformación y persistencia de vuelos de ida y vuelta **únicamente para los 10 nuevos destinos de la temporada 2027** (Sakhir, Yeda, Melbourne, Suzuka, Shanghái, Miami, Montreal, Montecarlo, Portimão y Silverstone), sin reprocesar los destinos anteriores.
+* **Respuesta Exitosa (`200 OK`)**:
 
-El microservicio desacopla las fallas externas de la persistencia interna:
-
-| Escenario de Falla | Causa Raíz | Comportamiento del Microservicio | Respuesta HTTP al Cliente |
-|---|---|---|:---:|
-| **API Key faltante o inválida** | Variable `RAPIDAPI_KEY` ausente o dummy. | Conmuta a datos de simulación representativos con aerolíneas reales por ruta. | `200 OK` (`success: true`) |
-| **Cuota agotada en RapidAPI (HTTP 429)** | Límite mensual o de ráfaga excedido. | Captura `HttpStatusCodeException`, registra `WARN` y activa fallback representativo. | `200 OK` (`success: true`) |
-| **Timeout de Conexión/Lectura** | Latencia de red (>10s conectar / >15s lectura). | Captura `ResourceAccessException` y continúa con fallback sin bloquear el hilo. | `200 OK` (`success: true`) |
-| **Fallo de Conexión / Timeout de Base de Datos** | Supabase pausado o pooler 6543 bloqueado. | Capturado por `GlobalExceptionHandler` (`CannotCreateTransactionException`). | `503 Service Unavailable` |
-| **Violación de Integridad / FK** | `origen_id_ciudad` o `destino_id_ciudad` inexistente. | Capturado por `GlobalExceptionHandler` (`DataIntegrityViolationException`). | `409 Conflict` |
-| **Ciudad no Encontrada en Catálogo** | Nombre de ciudad no existente en Supabase. | Capturado por `GlobalExceptionHandler` (`IllegalStateException`). | `422 Unprocessable Entity` |
+```json
+{
+  "success": true,
+  "message": "Sincronización de nuevos destinos completada: 10 destinos exitosos de 10 procesados (40 vuelos creados, 20 actualizados)",
+  "data": {
+    "totalDestinosProcesados": 10,
+    "destinosExitosos": 10,
+    "destinosConError": 0,
+    "totalVuelosExtraidos": 60,
+    "totalVuelosCreados": 40,
+    "totalVuelosActualizados": 20,
+    "fechaEjecucion": "2026-09-29T17:10:00Z",
+    "resultados": [
+      {
+        "target": "SAKHIR",
+        "nombreCiudad": "Sakhir",
+        "codigoAeropuertoDestino": "BAH",
+        "fechaCarrera": "2027-03-14",
+        "fechaIda": "2027-03-11",
+        "fechaVuelta": "2027-03-15",
+        "totalVuelosExtraidos": 6,
+        "vuelosCreados": 4,
+        "vuelosActualizados": 2,
+        "vuelosIda": 2,
+        "vuelosVuelta": 2,
+        "estado": "SUCCESS",
+        "mensaje": "Sincronización ETL de vuelos para Sakhir completada con éxito. Vuelos creados: 4 (Ida: 2, Vuelta: 2), Vuelos actualizados: 2.",
+        "fechaSincronizacion": "2026-09-29T17:10:03Z",
+        "vuelos": [
+          {
+            "idVuelo": "e4b0c201-1111-4444-8888-000000000001",
+            "aerolinea": "Gulf Air",
+            "origenIdCiudad": "b14f828a-6617-48f8-8422-5441a11ff497",
+            "destinoIdCiudad": "e4b0c201-1111-4444-8888-000000000001",
+            "fechaSalida": "2027-03-11T07:15:00Z",
+            "fechaLlegada": "2027-03-12T02:15:00Z",
+            "precioUsd": 950.00,
+            "stockAsientos": 25,
+            "direccion": "IDA"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
 
 ---
 
-## 8. Pruebas Automatizadas
+#### 3. Sincronización Manual de un Destino Específico
+* **Método**: `POST`
+* **Ruta**: `/api/microservicios/sync-flights/{target}`
+* **Ejemplo**: `POST http://localhost:8082/api/microservicios/sync-flights/SAO_PAULO`
+* **Respuesta Exitosa (`200 OK`)**:
 
-El proyecto cuenta con **21 pruebas unitarias y de integración** con Mockito y MockMvc que cubren la extracción, transformación con simulación de stock, persistencia Upsert, catálogo Enum y controladores REST.
+```json
+{
+  "success": true,
+  "message": "Sincronización ETL de vuelos ejecutada correctamente para São Paulo",
+  "data": {
+    "target": "SAO_PAULO",
+    "nombreCiudad": "São Paulo",
+    "codigoAeropuertoDestino": "GRU",
+    "fechaCarrera": "2026-11-06",
+    "fechaIda": "2026-11-05",
+    "fechaVuelta": "2026-11-08",
+    "totalVuelosExtraidos": 6,
+    "vuelosCreados": 6,
+    "vuelosActualizados": 0,
+    "vuelosIda": 3,
+    "vuelosVuelta": 3,
+    "estado": "SUCCESS",
+    "mensaje": "Sincronización ETL de vuelos para São Paulo completada con éxito. Vuelos creados: 6 (Ida: 3, Vuelta: 3), Vuelos actualizados: 0.",
+    "fechaSincronizacion": "2026-09-29T16:51:15Z",
+    "vuelos": [
+      {
+        "idVuelo": "c83f9821-22ab-41dd-9124-7efbc3456789",
+        "aerolinea": "LATAM Airlines",
+        "origenIdCiudad": "b14f828a-6617-48f8-8422-5441a11ff497",
+        "destinoIdCiudad": "4501eeb9-010b-468a-9024-4343f698cf58",
+        "fechaSalida": "2026-11-05T07:15:00Z",
+        "fechaLlegada": "2026-11-05T10:15:00Z",
+        "precioUsd": 320.00,
+        "stockAsientos": 15,
+        "direccion": "IDA"
+      }
+    ]
+  }
+}
+```
 
-Para ejecutar todas las pruebas:
+---
+
+#### 3. Catálogo Informativo de Destinos y Fechas
+* **Método**: `GET`
+* **Ruta**: `/api/microservicios/sync-flights/targets`
+#### 4. Catálogo Informativo de Destinos y Fechas
+* **Método**: `GET`
+* **Ruta**: `/api/microservicios/sync-flights/targets`
+* **Descripción**: Expone el listado completo de los 19 Grandes Premios soportados (2026 y 2027), sus aeropuertos, si es nuevo destino, temporada y el cálculo de fechas de ida y vuelta.
+* **Respuesta Exitosa (`200 OK`)**:
+
+```json
+{
+  "success": true,
+  "message": "Listado de destinos disponibles para sincronización de vuelos",
+  "data": [
+    {
+      "enum": "MADRID",
+      "ciudad": "Madrid",
+      "codigoAeropuerto": "MAD",
+      "fechaCarrera": "2026-09-11",
+      "fechaVueloIda": "2026-09-10",
+      "fechaVueloVuelta": "2026-09-13",
+      "origen": "Buenos Aires (EZE/BUE)",
+      "nuevoDestino": false,
+      "temporada": "2026"
+    },
+    {
+      "enum": "SAKHIR",
+      "ciudad": "Sakhir",
+      "codigoAeropuerto": "BAH",
+      "fechaCarrera": "2027-03-14",
+      "fechaVueloIda": "2027-03-11",
+      "fechaVueloVuelta": "2027-03-15",
+      "origen": "Buenos Aires (EZE/BUE)",
+      "nuevoDestino": true,
+      "temporada": "2027"
+    }
+  ]
+}
+```
+
+---
+
+### 6.4. ¿Cuáles son las Reglas? (Reglas de Negocio, Operativas y de Validación)
+
+1. **Regla de Unicidad y Criterio de Upsert**:
+   * La clave natural que identifica unívocamente a un vuelo es la combinación de:
+     $$\text{LOWER}(\text{aerolínea}) + \text{origen\_id\_ciudad} + \text{destino\_id\_ciudad} + \text{fecha\_salida}$$
+   * **Si ya existe**: Se conservan la clave primaria (`id_vuelo`) y la fecha de creación original (`created_at`), y se actualizan el precio (`precio_usd`), la fecha de llegada (`fecha_llegada`) y la disponibilidad de asientos (`stock_asientos`).
+   * **Si no existe**: Se crea un nuevo registro con UUID autogenerado y marca temporal actual en `created_at`.
+
+2. **Regla de Cálculo de Fechas (Ida y Vuelta)**:
+   * **Destinos Originales (2026)**:
+     * $\text{Fecha de Ida} = \text{Fecha Oficial del GP} - 1 \text{ día}$
+     * $\text{Fecha de Vuelta} = \text{Fecha Oficial del GP} + 2 \text{ días}$
+   * **Nuevos Destinos (2027)**:
+     * $\text{Fecha de Ida} = \text{Fecha de Llegada exacta solicitada}$ (Buenos Aires &rarr; Destino).
+     * $\text{Fecha de Vuelta} = \text{Fecha de Salida exacta solicitada}$ (Destino &rarr; Buenos Aires).
+   * Ambas búsquedas se ejecutan de manera independiente como vuelos individuales ("one-way") para garantizar la captura de disponibilidad real por tramo.
+
+3. **Regla de Simulación de Stock de Asientos**:
+   * Si la API externa no provee el campo de asientos disponibles o informa un valor menor o igual a cero, el sistema asigna de forma determinista un número pseudoaleatorio en el rango de **5 a 50 asientos**.
+   * Esta regla asegura que la aplicación consumidora siempre disponga de inventario transaccional para simular o procesar reservas.
+
+4. **Regla de Normalización y Truncamiento de Datos**:
+   * Los nombres de aerolínea se recortan a un máximo de **100 caracteres** para cumplir estrictamente con la restricción de longitud de la base de datos.
+   * Los precios se convierten a `BigDecimal` con **escala de 2 decimales y redondeo HALF_UP**.
+   * Las fechas y horas se normalizan y almacenan con zona horaria UTC (`OffsetDateTime` / `timestamptz`).
+
+5. **Regla de Aislamiento de Fallos en Sincronización Masiva**:
+   * Durante la ejecución de `/all` o `/new-destinations`, si el procesamiento de un Gran Premio particular falla, el error se captura y aísla localmente registrando el estado `"ERROR"` para ese destino en el resumen, permitiendo que el resto de las sedes continúe procesándose normalmente sin abortar el lote.
+
+6. **Regla de Degradación Agraciada ante Proveedor Externo**:
+   * Si la clave `RAPIDAPI_KEY` no está configurada, es inválida, se agota la cuota mensual (HTTP 429), o la llamada externa sufre un tiempo de espera excedido (>10s conexión, >15s lectura), el servicio activa automáticamente la generación de vuelos representativos con aerolíneas auténticas según el destino y duraciones coherentes por ruta, retornando un código HTTP `200 OK` con persistencia exitosa.
+
+---
+
+### 6.5. Códigos de Estado HTTP y Manejo de Errores
+
+| Código HTTP | Nombre | Escenario de Aplicación | Estructura de Respuesta JSON |
+|---|---|---|---|
+| **`200 OK`** | Operación Exitosa | Sincronización (individual, masiva o de nuevos destinos) o consulta de catálogo completada exitosamente. | `{"success": true, "message": "...", "data": {...}}` |
+| **`400 BAD REQUEST`** | Petición Inválida | El parámetro `{target}` en la URL no coincide con ningún Gran Premio soportado en el catálogo. | `{"success": false, "message": "Destino inválido: 'XYZ'. Los destinos válidos son: [...]", "data": null}` |
+| **`409 CONFLICT`** | Conflicto de Integridad | Violación de restricciones de base de datos relacional (ej: claves foráneas o llaves únicas). | `{"success": false, "message": "Error de restricción en base de datos: ...", "data": null}` |
+| **`422 UNPROCESSABLE ENTITY`** | Entidad no Procesable | La ciudad de destino configurada en el enum no pudo ser resuelta ni encontrada en la tabla `ciudades` de la base de datos. | `{"success": false, "message": "No se encontró la ciudad destino '...' en la tabla 'ciudades'...", "data": null}` |
+| **`503 SERVICE UNAVAILABLE`** | Servicio no Disponible | Pérdida de conectividad con la base de datos PostgreSQL (Supabase), pooler inalcanzable o pausa del servidor. | `{"success": false, "message": "Error de conexión con la base de datos (Supabase): no se pudo abrir la transacción...", "data": null}` |
+| **`500 INTERNAL SERVER ERROR`** | Error Interno | Cualquier otra excepción no anticipada producida durante la ejecución. | `{"success": false, "message": "Ha ocurrido un error interno en el microservicio: ...", "data": null}` |
+
+---
+
+## 7. Ejecución de Pruebas Automatizadas
+
+El proyecto incluye una suite integral de **24 pruebas unitarias y de integración** basadas en Mockito, JUnit 5 y Spring MockMvc, que validan la lógica de adaptación, los controladores REST, los endpoints masivos e individuales, el catálogo de 19 destinos y el orquestador ETL.
+
+Para ejecutar la suite completa:
 ```bash
 ./mvnw clean test
 ```
